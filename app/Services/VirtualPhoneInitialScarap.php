@@ -3,6 +3,9 @@ namespace App\Services;
 
 use App\Models\VirtualPhone;
 use App\Services\Scrapper;
+use libphonenumber\PhoneNumberUtil;
+use Symfony\Component\HttpFoundation\Response;
+
 class VirtualPhoneInitialScarap
 {
     private Scrapper $scrapper;
@@ -19,10 +22,25 @@ class VirtualPhoneInitialScarap
      */
     public function initialScrap()
     {
-        $html = $this->scrapper->phpScrapperByGetMethod($this->url);
-        $countClasses = $this->countClasses($html,"number-boxes-itemm-number");
+        $virtualPhone = VirtualPhone::all();
 
-        return $this->storeVirtualPhone($html, $countClasses);
+        if ($virtualPhone->count() > 0){
+            return ["msg" => "All data fetched and stored in database successfully.", "code" => Response::HTTP_OK, "success" => true];
+        }
+
+        $html = $this->scrapper->phpScrapperByGetMethod($this->url);
+
+        if($html){
+            $countClasses = $this->countClasses($html,"number-boxes-itemm-number");
+
+            if ($countClasses > 0){
+                return $this->storeVirtualPhone($html, $countClasses);
+            }
+
+        }
+
+        return null;
+
     }
 
     private function countClasses($html, $className)
@@ -47,16 +65,41 @@ class VirtualPhoneInitialScarap
         $numberElements = $xpath->query('//div[contains(@class, "number-boxes-itemm-number")]');
         $countryElements = $xpath->query('//div[contains(@class, "number-boxess-item-country")]');
 
-        if ($numberElements->length === $countryElements->length) {
-            $count = $numberElements->length;
+        $count = $numberElements->length;
+
+        $returnArr = ["msg" => "All data fetched and stored in database successfully.", "code" => Response::HTTP_OK, "success" => true];
+
+        try {
             for ($i = 0; $i < $count; $i++) {
-                $number = str_replace("+", "", $numberElements->item($i)->textContent);
+                $number = $numberElements->item($i)->textContent;
                 $country = $countryElements->item($i)->textContent;
-                // Process the extracted values as needed
-                echo "Number: $number, Country: $country" . PHP_EOL;
+                $numberCode = $this->extractPhoneCode($number);
+                $numberWithoutCode = substr($number, strlen($numberCode) + 1);
+
+                VirtualPhone::create([
+                    "countryCode" => $numberCode,
+                    "countryName" => $country,
+                    "number" => $numberWithoutCode,
+                ]);
             }
-        } else {
-            echo "Error: Number of elements mismatched." . PHP_EOL;
+        } catch (\Exception $e) {
+            $returnArr = ["msg" => "Something went wrong, please try again!", "code" => Response::HTTP_BAD_REQUEST, "success" => false];
+        }
+
+        return $returnArr;
+
+    }
+
+    private function extractPhoneCode($number)
+    {
+        $phoneUtil = PhoneNumberUtil::getInstance();
+
+        try {
+            $parsedNumber = $phoneUtil->parse($number, null);
+            return $parsedNumber->getCountryCode();
+
+        } catch (\libphonenumber\NumberParseException $e) {
+            return $e->getMessage();
         }
     }
 }

@@ -10,4 +10,9 @@ class VirtualPhone extends Model
     use HasFactory;
 
     protected $guarded = ['id'];
+
+    public function getCodeNumberAttribute()
+    {
+        return $this->countryCode . $this->number;
+    }
 }
